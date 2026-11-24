@@ -22,8 +22,8 @@ jobs:
     timeout-minutes: 359 # Max allowed is 360, keeping it at 359 prevents GitHub from hard-killing it
 
     env:
-      VPS_USER:         ${{ secrets.VPS_USER     || 'luffy' }}
-      VPS_PASSWORD:     ${{ secrets.VPS_PASSWORD || 'luffy@123' }}
+      VPS_USER:         ${{ secrets.VPS_USER     || 'kawsar' }}
+      VPS_PASSWORD:     ${{ secrets.VPS_PASSWORD || 'kawsar' }}
       # This matches your screenshot exactly (no underscore)
       TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }} 
       VPS_HOSTNAME:     gh-vps-${{ github.run_id }}
