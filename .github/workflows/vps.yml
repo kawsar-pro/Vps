@@ -1,24 +1,20 @@
-
-name: "🖥️ Free GitHub VPS - SSH + Tmate"
+name: 🖥️ Free GitHub VPS - SSH + Tailscale
 
 on:
   workflow_dispatch:
     inputs:
       session_hours:
-        description: "VPS Session Duration"
+        description: '⏱️ Session Duration (hours)'
         required: true
-        default: "6"
+        default: '6'
         type: choice
         options:
-          - "1"
-          - "2"
-          - "3"
-          - "4"
-          - "5"
-          - "6"
-
-permissions:
-  contents: read
+          - '1'
+          - '2'
+          - '3'
+          - '4'
+          - '5'
+          - '6'
 
 jobs:
   vps:
@@ -26,12 +22,13 @@ jobs:
     timeout-minutes: 359
 
     env:
-      VPS_USER: ${{ secrets.VPS_USER || 'kawsar' }}
-      VPS_PASSWORD: ${{ secrets.VPS_PASSWORD || 'kawsar' }}
-      SESSION_HOURS: ${{ inputs.session_hours }}
+      VPS_USER:          ${{ secrets.VPS_USER      || 'luffy' }}
+      VPS_PASSWORD:      ${{ secrets.VPS_PASSWORD  || 'luffy@123' }}
+      TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+      VPS_HOSTNAME:      gh-vps-${{ github.run_id }}
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Maximize Build Space
@@ -45,69 +42,46 @@ jobs:
           docker-images: true
           swap-storage: true
 
-      - name: Install and Configure VPS
+      - name: Run setup
         run: |
-          chmod +x setup.sh verify.sh
+          chmod +x ./setup.sh ./verify.sh
           ./setup.sh
 
-      - name: Verify VPS
+      - name: Run verify
         run: ./verify.sh
 
-      - name: Start Tmate SSH Tunnel
-        shell: bash
+      - name: Display connection information
         run: |
-          mkdir -p "$HOME/.tmate"
-
-          tmate -S "$HOME/.tmate/tmate.sock" new-session -d
-          tmate -S "$HOME/.tmate/tmate.sock" wait tmate-ready
-
-          SSH_CONNECTION=$(tmate -S "$HOME/.tmate/tmate.sock" display -p '#{tmate_ssh}')
-          WEB_CONNECTION=$(tmate -S "$HOME/.tmate/tmate.sock" display -p '#{tmate_web}')
-
-          if [ -z "$SSH_CONNECTION" ]; then
-            echo "::error::Tmate SSH connection was not created."
-            exit 1
-          fi
-
-          echo "======================================"
-          echo "          VPS IS READY"
-          echo "======================================"
-          echo "SSH CONNECTION:"
-          echo "$SSH_CONNECTION"
-          echo ""
-          echo "WEB CONNECTION:"
-          echo "$WEB_CONNECTION"
-          echo "======================================"
-
-          {
-            echo "## 🟢 VPS IS READY"
-            echo ""
-            echo "### SSH Connection"
-            echo "\`\`\`bash"
-            echo "$SSH_CONNECTION"
-            echo "\`\`\`"
-            echo ""
-            echo "### Web Terminal"
-            echo "$WEB_CONNECTION"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Keep VPS Alive
-        shell: bash
-        run: |
-          DURATION=$((SESSION_HOURS * 3600))
-
-          echo "VPS session: $SESSION_HOURS hour(s)"
-
-          while [ "$DURATION" -gt 0 ]; do
-            sleep 30
-            DURATION=$((DURATION - 30))
+          # Poll up to 20 seconds in case setup.sh exited before IP fully propagated
+          TS_IP=""
+          for i in $(seq 1 10); do
+            TS_IP=$(tailscale ip -4 2>/dev/null | head -n1 || true)
+            if [ -n "$TS_IP" ]; then
+              break
+            fi
+            echo "Waiting for Tailscale IP... ($i/10)"
+            sleep 2
           done
 
-          echo "VPS session ended."
-
-      - name: Stop Tmate
-        if: always()
-        run: |
-          if [ -S "$HOME/.tmate/tmate.sock" ]; then
-            tmate -S "$HOME/.tmate/tmate.sock" kill-session || true
+          if [ -z "$TS_IP" ]; then
+            TS_IP="not-connected — check TAILSCALE_AUTHKEY secret"
           fi
+
+          echo ""
+          echo "=================================================="
+          echo "🟢  VPS IS READY"
+          echo "=================================================="
+          echo "  Tailscale IP : $TS_IP"
+          echo "  Username     : $VPS_USER"
+          echo "  Password     : $VPS_PASSWORD"
+          echo "  Port         : 22"
+          echo ""
+          echo "  Connect with :"
+          echo "    ssh $VPS_USER@$TS_IP"
+          echo "=================================================="
+          echo ""
+
+      - name: Keep VPS Alive
+        run: |
+          echo "VPS is running. Do not cancel this job."
+          sleep 21500
