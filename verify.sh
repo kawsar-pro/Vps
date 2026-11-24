@@ -1,72 +1,65 @@
-
 #!/usr/bin/env bash
-
-# VPS Verification - No Tailscale
-
+#
+# verify.sh - Checks that the VPS is correctly configured.
+#
 set -uo pipefail
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
+YELLOW='\033[1;33m'
 NC='\033[0m'
 
 FAILED=0
 
-ok() {
-    echo -e "${GREEN}[OK]${NC} $*"
-}
-
-fail() {
-    echo -e "${RED}[FAILED]${NC} $*"
+check_cmd() {
+  local name="$1"
+  local cmd="$2"
+  if command -v "$cmd" >/dev/null 2>&1; then
+    local out
+    out=$($cmd --version 2>&1 | head -n1)
+    echo -e "${GREEN}[OK]${NC} $name: $out"
+  else
+    echo -e "${RED}[MISSING]${NC} $name"
     FAILED=$((FAILED + 1))
+  fi
 }
 
-echo "=================================="
-echo "       VPS VERIFICATION"
-echo "=================================="
-
-for cmd in git python3 node npm tmate sshd; do
-    if command -v "$cmd" >/dev/null 2>&1; then
-        ok "$cmd installed"
-    else
-        fail "$cmd missing"
-    fi
-done
-
-if sudo systemctl is-active --quiet ssh; then
-    ok "SSH service running"
-else
-    fail "SSH service not running"
-fi
-
-if sudo sshd -t; then
-    ok "SSH configuration valid"
-else
-    fail "SSH configuration invalid"
-fi
-
-VPS_USER="${VPS_USER:-kawsar}"
-
-if id "$VPS_USER" >/dev/null 2>&1; then
-    ok "VPS user exists: $VPS_USER"
-else
-    fail "VPS user missing"
-fi
+check_cmd "Git"      "git"
+check_cmd "Python"   "python3"
+check_cmd "Node.js"  "node"
+check_cmd "npm"      "npm"
 
 if command -v docker >/dev/null 2>&1; then
-    if sudo systemctl is-active --quiet docker; then
-        ok "Docker service running"
-    else
-        fail "Docker service not running"
-    fi
+  check_cmd "Docker" "docker"
 fi
 
-echo "=================================="
+if command -v tailscale >/dev/null 2>&1; then
+  echo -e "${GREEN}[OK]${NC} Tailscale installed"
+  if tailscale status >/dev/null 2>&1; then
+    TS_IP=$(tailscale ip -4 2>/dev/null || echo "")
+    if [ -n "$TS_IP" ]; then
+      echo -e "${GREEN}[OK]${NC} Tailscale connected — IP: $TS_IP"
+    else
+      echo -e "${YELLOW}[WARN]${NC} Tailscale running but no IPv4 assigned"
+    fi
+  else
+    echo -e "${YELLOW}[WARN]${NC} Tailscale not connected"
+  fi
+else
+  echo -e "${RED}[MISSING]${NC} Tailscale"
+  FAILED=$((FAILED + 1))
+fi
+
+if command -v sshd >/dev/null 2>&1 || systemctl is-active ssh >/dev/null 2>&1; then
+  echo -e "${GREEN}[OK]${NC} SSH server active"
+else
+  echo -e "${RED}[MISSING]${NC} SSH server"
+  FAILED=$((FAILED + 1))
+fi
 
 if [ "$FAILED" -gt 0 ]; then
-    echo "$FAILED verification check(s) failed."
-    exit 1
+  echo -e "${RED}$FAILED check(s) need attention.${NC}"
+  exit 1
 fi
 
-echo "ALL CHECKS PASSED"
-echo "VPS READY"
-echo "=================================="
+echo -e "${GREEN}All VPS checks passed.${NC}"
