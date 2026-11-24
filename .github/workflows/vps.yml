@@ -1,35 +1,37 @@
-name: 🖥️ Free GitHub VPS - SSH + Tailscale
+
+name: "🖥️ Free GitHub VPS - SSH + Tmate"
 
 on:
   workflow_dispatch:
     inputs:
       session_hours:
-        description: '⏱️ Session Duration (hours)'
+        description: "VPS Session Duration"
         required: true
-        default: '6'
+        default: "6"
         type: choice
         options:
-          - '1'
-          - '2'
-          - '3'
-          - '4'
-          - '5'
-          - '6'
+          - "1"
+          - "2"
+          - "3"
+          - "4"
+          - "5"
+          - "6"
+
+permissions:
+  contents: read
 
 jobs:
   vps:
     runs-on: ubuntu-latest
-    timeout-minutes: 359 # Max allowed is 360, keeping it at 359 prevents GitHub from hard-killing it
+    timeout-minutes: 359
 
     env:
-      VPS_USER:         ${{ secrets.VPS_USER     || 'kawsar' }}
-      VPS_PASSWORD:     ${{ secrets.VPS_PASSWORD || 'kawsar' }}
-      # This matches your screenshot exactly (no underscore)
-      TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }} 
-      VPS_HOSTNAME:     gh-vps-${{ github.run_id }}
+      VPS_USER: ${{ secrets.VPS_USER || 'kawsar' }}
+      VPS_PASSWORD: ${{ secrets.VPS_PASSWORD || 'kawsar' }}
+      SESSION_HOURS: ${{ inputs.session_hours }}
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Maximize Build Space
@@ -43,33 +45,69 @@ jobs:
           docker-images: true
           swap-storage: true
 
-      - name: Run setup
+      - name: Install and Configure VPS
         run: |
-          chmod +x ./setup.sh ./verify.sh
+          chmod +x setup.sh verify.sh
           ./setup.sh
 
-      - name: Run verify
+      - name: Verify VPS
         run: ./verify.sh
 
-      - name: Display connection information
+      - name: Start Tmate SSH Tunnel
+        shell: bash
         run: |
-          TS_IP=$(tailscale ip -4 2>/dev/null | head -n1 || echo "not-connected")
+          mkdir -p "$HOME/.tmate"
+
+          tmate -S "$HOME/.tmate/tmate.sock" new-session -d
+          tmate -S "$HOME/.tmate/tmate.sock" wait tmate-ready
+
+          SSH_CONNECTION=$(tmate -S "$HOME/.tmate/tmate.sock" display -p '#{tmate_ssh}')
+          WEB_CONNECTION=$(tmate -S "$HOME/.tmate/tmate.sock" display -p '#{tmate_web}')
+
+          if [ -z "$SSH_CONNECTION" ]; then
+            echo "::error::Tmate SSH connection was not created."
+            exit 1
+          fi
+
+          echo "======================================"
+          echo "          VPS IS READY"
+          echo "======================================"
+          echo "SSH CONNECTION:"
+          echo "$SSH_CONNECTION"
           echo ""
-          echo "=================================================="
-          echo "🟢  VPS IS READY"
-          echo "=================================================="
-          echo "  Tailscale IP : $TS_IP"
-          echo "  Username     : $VPS_USER"
-          echo "  Password     : $VPS_PASSWORD"
-          echo "  Port         : 22"
-          echo ""
-          echo "  Connect with :"
-          echo "    ssh $VPS_USER@$TS_IP"
-          echo "=================================================="
-          echo ""
+          echo "WEB CONNECTION:"
+          echo "$WEB_CONNECTION"
+          echo "======================================"
+
+          {
+            echo "## 🟢 VPS IS READY"
+            echo ""
+            echo "### SSH Connection"
+            echo "\`\`\`bash"
+            echo "$SSH_CONNECTION"
+            echo "\`\`\`"
+            echo ""
+            echo "### Web Terminal"
+            echo "$WEB_CONNECTION"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Keep VPS Alive
+        shell: bash
         run: |
-          echo "VPS is running. Do not cancel this job."
-          # Sleep for 6 hours (21,500 seconds) to keep the VPS online until the timeout limit.
-          sleep 21500
+          DURATION=$((SESSION_HOURS * 3600))
+
+          echo "VPS session: $SESSION_HOURS hour(s)"
+
+          while [ "$DURATION" -gt 0 ]; do
+            sleep 30
+            DURATION=$((DURATION - 30))
+          done
+
+          echo "VPS session ended."
+
+      - name: Stop Tmate
+        if: always()
+        run: |
+          if [ -S "$HOME/.tmate/tmate.sock" ]; then
+            tmate -S "$HOME/.tmate/tmate.sock" kill-session || true
+          fi
