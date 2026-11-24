@@ -22,8 +22,8 @@ jobs:
     timeout-minutes: 359
 
     env:
-      VPS_USER:          ${{ secrets.VPS_USER      || 'luffy' }}
-      VPS_PASSWORD:      ${{ secrets.VPS_PASSWORD  || 'luffy@123' }}
+      VPS_USER:          ${{ secrets.VPS_USER      || 'kawsar' }}
+      VPS_PASSWORD:      ${{ secrets.VPS_PASSWORD  || 'kawsar@123' }}
       TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
       VPS_HOSTNAME:      gh-vps-${{ github.run_id }}
 
